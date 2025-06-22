@@ -1,0 +1,140 @@
+[shell.gobi.env]
+BASIC_PKGS="""
+    clang
+    zsh
+    rg
+    fzf
+"""
+[shell.gobi.eval-env]
+BASE_DIR="[[ -d $HOME/Documents ]] && echo $HOME/Documents || echo $HOME"
+SCRIPTS_DIR="realpath $GOBI_DIR/../"
+
+[shell.install]
+command = """
+    set -e
+    if [[ -z $1 ]]; then
+        echo "gobi setup install expects a package name" >&2
+        exit 1
+    fi
+
+    if [[ $(command -v dnf) ]]; then
+        sudo dnf install $1 -y
+    else
+        echo "Failed to detect a known package manager" >&2
+        exit 1
+    fi
+"""
+
+[shell.everything]
+command = """
+    set -e
+    set -o pipefail
+    gobi setup core
+    gobi setup git
+    gobi setup zsh
+    gobi setup code
+"""
+
+[shell.core]
+command = """
+    set -e
+    set -o pipefail
+
+    required_tools=({{ BASIC_PKGS }})
+    for tool in ${required_tools[@]}; do
+        if ! [[ $(command -v $tool) ]]; then
+            gobi setup install $tool
+        fi
+    done
+"""
+
+[shell.code.env]
+DEFAULT_EXTENSIONS="""
+    rust-lang.rust-analyzer
+    tamasfe.even-better-toml
+    smcpeak.default-keys-windows
+    GitHub.copilot
+    arcticicestudio.nord-visual-studio-code
+"""
+[shell.code]
+command = """
+    set -e
+    set -o pipefail
+
+    # install if necessary
+    if ! [[ $( command -v code ) ]]; then
+        if ! [[ -f /etc/yum.repos.d/vscode.repo ]]; then
+            sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+            echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" \
+                | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
+        fi
+
+        gobi setup install code
+    fi
+
+    # setup settings and keybindings
+    for file in settings.json keybindings.json; do
+        if ! [[ -L $HOME/.config/Code/User/$file ]]; then
+            rm -f $HOME/.config/Code/User/$file
+            ln -s {{ SCRIPTS_DIR }}/code/$file $HOME/.config/Code/User/$file
+        fi
+    done
+
+    default_extensions=({{ DEFAULT_EXTENSIONS }})
+    installed_extensions=$(code --list-extensions)
+    for extension in ${default_extensions[@]}; do
+        # convert to lower case for case-insensitive comparison (that's the ,, part)
+        if ! [[ ${installed_extensions,,} =~ ${extension,,} ]]; then
+            code --install-extension $extension
+        fi
+    done
+
+"""
+
+[shell.zsh]
+command = """
+    set -e
+    set -o pipefail
+    
+    if ! [[ $( command -v zsh ) ]]; then
+        gobi setup install zsh
+        chsh -s $(command -v zsh)
+    fi
+
+    # install oh-my-zsh if not already installed
+    if ! [[ -d $HOME/.oh-my-zsh ]]; then
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    fi
+
+    # check if .zshrc is already linked
+    if ! [[ -L $HOME/.zshrc ]]; then
+        rm -f $HOME/.zshrc
+        ln -s {{ SCRIPTS_DIR }}/zsh/.zshrc $HOME/.zshrc
+    fi
+
+    # link theme
+    if ! [[ -L $HOME/.oh-my-zsh/themes/ibricchi.zsh-theme ]]; then
+        rm -f $HOME/.oh-my-zsh/themes/ibricchi.zsh-theme
+        ln -s {{ SCRIPTS_DIR }}/zsh/ibricchi.zsh-theme $HOME/.oh-my-zsh/themes/ibricchi.zsh-theme
+    fi
+"""
+
+[shell.git]
+command = """
+    set -e
+    set -o pipefail
+
+    if ! [[ $( command -v git ) ]]; then
+        gobi setup install git
+    fi
+
+    git config --global user.name "ibricchi"
+    git config --global user.email "19757722+ibricchi@users.noreply.github.com"
+
+    if ! [[ -f $HOME/.ssh/id_ed25519 ]]; then
+        echo "Generating SSH key..."
+        ssh-keygen -t ed25519 -C "$HOME/.ssh/id_ed25519" -f $HOME/.ssh/id_ed25519 -N ""
+        echo "SSH key generated. Please add it to your GitHub account."
+        echo "You can find the public key at $HOME/.ssh/id_ed25519.pub"
+    fi
+"""
