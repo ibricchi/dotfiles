@@ -13,5 +13,5 @@ command = """
         git commit -m "Update dotfiles: $current_date $current_time"
     fi
     git pull --rebase origin main
-    # git push origin main
+    git push origin main
 """
