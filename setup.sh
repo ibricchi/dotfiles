@@ -24,17 +24,13 @@ fi
 SCRIPT_DIR=$(cd $(dirname $0); pwd)
 
 # install cargo for gobi
+[[ -f $HOME/.cargo/env ]] && source $HOME/.cargo/env
 if ! [[ $(command -v cargo) ]]; then
     rust_setup_script=$(mktemp)
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > $rust_setup_script
     sh $rust_setup_script -y 
-fi 
-
-for tool in ${required_tools[@]}; do
-    if ! [[ $(command -v $tool) ]]; then
-        sudo dnf install $tool
-    fi
-done
+fi
+source $HOME/.cargo/env
 
 # install gobi
 if ! [[ $(command -v gobi) ]]; then

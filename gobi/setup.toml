@@ -4,6 +4,7 @@ BASIC_PKGS="""
     zsh
     rg
     fzf
+    code
 """
 [shell.gobi.eval-env]
 BASE_DIR="[[ -d $HOME/Documents ]] && echo $HOME/Documents || echo $HOME"
@@ -29,16 +30,53 @@ command = """
 command = """
     set -e
     set -o pipefail
+    gobi setup distro
     gobi setup core
     gobi setup git
     gobi setup zsh
     gobi setup code
 """
 
+[shell.distro]
+command = """
+    shopt -s lastpipe
+    # if fedora
+    if [[ -f /etc/fedora-release ]]; then
+        # add rpm fusion repositories if not already present
+        if ! [[ -f /etc/yum.repos.d/rpmfusion-free.repo ]]; then
+            sudo dnf install \
+                https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+        fi
+        if ! [[ -f /etc/yum.repos.d/rpmfusion-nonfree.repo ]]; then
+            sudo dnf install \
+                https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+        fi
+
+        # check if libavcodec-freeworld is already installed
+        dnf list --installed libavcodec-freeworld \
+            | grep -c "libavcodec-freeworld" \
+            | read count
+        if [[ $count -eq 0 ]]; then
+            sudo dnf install libavcodec-freeworld
+        fi
+
+        # add the vscode repository if not already present
+        if ! [[ -f /etc/yum.repos.d/vscode.repo ]]; then
+            sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
+            echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" \
+                | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
+        fi
+    else
+        echo "Could not detect a supported distribution" >&2
+        exit 1
+    fi
+"""
+
 [shell.core]
 command = """
     set -e
     set -o pipefail
+    shopt -s lastpipe
 
     required_tools=({{ BASIC_PKGS }})
     for tool in ${required_tools[@]}; do
@@ -46,6 +84,15 @@ command = """
             gobi setup install $tool
         fi
     done
+
+    set +e
+    gobi list \
+        | grep -c "dotfiles" \
+        | read dotfiles_registered
+
+    if [[ $dotfiles_registered -eq 0 ]]; then
+        gobi register dotfiles {{ GOBI_DIR }}/dotfiles.toml
+    fi
 """
 
 [shell.code.env]
@@ -61,21 +108,11 @@ command = """
     set -e
     set -o pipefail
 
-    # install if necessary
-    if ! [[ $( command -v code ) ]]; then
-        if ! [[ -f /etc/yum.repos.d/vscode.repo ]]; then
-            sudo rpm --import https://packages.microsoft.com/keys/microsoft.asc
-            echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc" \
-                | sudo tee /etc/yum.repos.d/vscode.repo > /dev/null
-        fi
-
-        gobi setup install code
-    fi
-
     # setup settings and keybindings
     for file in settings.json keybindings.json; do
         if ! [[ -L $HOME/.config/Code/User/$file ]]; then
             rm -f $HOME/.config/Code/User/$file
+            mkdir -p $HOME/.config/Code/User/
             ln -s {{ SCRIPTS_DIR }}/code/$file $HOME/.config/Code/User/$file
         fi
     done
@@ -93,12 +130,16 @@ command = """
 
 [shell.zsh]
 command = """
-    set -e
-    set -o pipefail
+    shopt -s lastpipe
     
-    if ! [[ $( command -v zsh ) ]]; then
-        gobi setup install zsh
-        chsh -s $(command -v zsh)
+    # check if zsh is default shell
+    sudo cat /etc/passwd \
+        | grep "${USER}" \
+        | grep -c "/bin/zsh" \
+        | read zsh_is_default
+    echo "zsh is default shell: $zsh_is_default"
+    if [[ $zsh_is_default -eq 0 ]]; then
+        sudo chsh -s $(command -v zsh)
     fi
 
     # install oh-my-zsh if not already installed
@@ -137,4 +178,7 @@ command = """
         echo "SSH key generated. Please add it to your GitHub account."
         echo "You can find the public key at $HOME/.ssh/id_ed25519.pub"
     fi
+
+    git -C {{ GOBI_DIR }} remote remove origin
+    git -C {{ GOBI_DIR }} remote add origin git@github.com:ibricchi/gobi.git
 """

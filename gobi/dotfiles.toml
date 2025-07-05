@@ -1,0 +1,17 @@
+[shell.update]
+cwd = "{{ GOBI_DIR }}/../"
+command = """
+    set -e
+    set -o pipefail
+
+    # commit any changes
+    current_date=$(date +%Y-%m-%d)
+    current_time=$(date +%H:%M:%S)
+    # if there are changes
+    if [[ -n $(git status --porcelain) ]]; then
+        git add .
+        git commit -m "Update dotfiles: $current_date $current_time"
+    fi
+    git pull --rebase origin main
+    # git push origin main
+"""
